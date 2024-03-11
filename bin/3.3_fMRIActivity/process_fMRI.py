@@ -75,16 +75,13 @@ def findSlicesData(path,pre):
     return regMR_list
 
 def getRASorientation(file_name,proc_Path):
-    file_data = nii.load(file_name)
-    imgData = file_data.get_fdata()
+    data = nii.load(file_name)
+    imgData = data.get_fdata()
+
     imgData = np.flip(imgData, 2)
-
     imgData = np.flip(imgData, 0)
-    y = imgData
-    #y = imgScaleResize(imgData)
 
-
-    epiData = nii.Nifti1Image(y, file_data.affine)
+    epiData = nii.Nifti1Image(imgData, data.affine)
     hdrIn = epiData.header
     hdrIn.set_xyzt_units('mm')
     epiData_RAS = nii.as_closest_canonical(epiData)
@@ -94,9 +91,8 @@ def getRASorientation(file_name,proc_Path):
     return output_file
 
 def getEPIMean(file_name,proc_Path):
-    output_file = os.path.join(proc_Path, os.path.basename(file_name).split('.')[0]) + 'EPI.nii.gz'
+    output_file = os.path.join(proc_Path, os.path.basename(file_name).split('.')[0]) + 'mean.nii.gz'
     myMean = fsl.MeanImage(in_file=file_name, out_file=output_file)
-    print(myMean.cmdline)
     print(myMean.cmdline)
     myMean.run()
     return output_file
@@ -132,7 +128,14 @@ def applyMask(input_file,mask_file):
 def fsl_SeparateSliceMoCo(input_file,par_folder):
     # scale Nifti data by factor 10
     dataName = os.path.basename(input_file).split('.')[0]
+
+    aidamri_dir = os.getcwd()
+    temp_dir = os.path.join(os.path.dirname(input_file), "temp")
+    if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+
     fslPath = scaleBy10(input_file, inv=False)
+    os.chdir(temp_dir)
     mySplit= fsl.Split(in_file=fslPath,dimension='z',out_base_name = dataName)
     print(mySplit.cmdline)
     mySplit.run()
@@ -141,9 +144,6 @@ def fsl_SeparateSliceMoCo(input_file,par_folder):
 
     # sparate ref and src volume in slices
     sliceFiles = findSlicesData(os.getcwd(),dataName)
-    # refFiles = findSlicesData(os.getcwd(),'ref')
-    print('For all slices ... ')
-
 
     #start to correct motions slice by slice
     for i in  range(len(sliceFiles)):
@@ -152,7 +152,6 @@ def fsl_SeparateSliceMoCo(input_file,par_folder):
         # take epi as ref
         output_file = os.path.join(par_folder,os.path.basename(slc))
         myMCFLIRT = fsl.preprocess.MCFLIRT(in_file=slc,out_file=output_file,save_plots=True,terminal_output='none')
-        print(myMCFLIRT.cmdline)
         myMCFLIRT.run()
         os.remove(slc)
         # os.remove(ref)
@@ -170,23 +169,38 @@ def fsl_SeparateSliceMoCo(input_file,par_folder):
 
     # unscale result data by factor 10ˆ(-1)
     output_file = scaleBy10(output_file, inv=True)
+    
+    #os.remove(temp_dir)
+    os.chdir(aidamri_dir)
 
     return output_file
 
 def copyRawPhysioData(file_name,i32_Path):
-    studyName = file_name.split('/')[-3]
-    scanNo = file_name.split('.')[-4]+'.I32'
-    physioPath=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(file_name))),'Physio',studyName)
-    print(physioPath)
+    img_name = Path(file_name).name
+    json_name = img_name.replace(".nii.gz", ".json")
+    
+    json_file = os.path.join(os.path.dirname(file_name), json_name)
+    sub_name = (Path(file_name).name.split("_")[0]).split("-")[1]
+    studyName = (Path(os.path.dirname(os.path.dirname(file_name))).name).split("-")[1]
+    
     relatedPhysioData = []
-    fileALL = glob.glob(physioPath+'/'+studyName+'*'+scanNo)
-    for filename in fileALL:
-        relatedPhysioData.append(filename)
+    if os.path.exists(json_file):
+        with open(json_file, 'r') as infile:
+            content = json.load(infile)
+            scanid = str(content["ScanID"]) + ".I32"
+
+        physioPath=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(file_name)))),'Physio')
+        
+        conditions = [sub_name , studyName]
+        for file in glob.iglob(os.path.join(physioPath, "**", "*" + scanid), recursive=True):
+            filename = os.path.basename(file)
+            if all(condition in filename for condition in conditions):
+                relatedPhysioData.append(file)
 
     if len(relatedPhysioData)>1:
-        sys.exit("Warning: '%s' has no unique physio data for scan %s." % (physioPath, scanNo,))
+        sys.exit("Warning: '%s' has no unique physio data for scan %s." % (physioPath, scanid,))
     if len(relatedPhysioData) is 0:
-        print("Error: '%s' has no related physio data for scan %s." % (physioPath, scanNo,))
+        print("Error: '%s' has no related physio data for scan %s." % (physioPath, scanid,))
         return []
 
     physioFile_name = relatedPhysioData[0]
@@ -234,11 +248,6 @@ def startProcess(Rawfile_name):
         shutil.rmtree(i32_Path)
     os.mkdir(i32_Path)
 
-    print("fMRI Processing \33[5m...\33[0m (wait!)", end="\r")
-
-    # generate log - file
-    sys.stdout = open(os.path.join(os.path.dirname(Rawfile_name), 'process.log'), 'w')
-
     # bring dataset to RAS orientation
     file_name = getRASorientation(Rawfile_name,proc_Path)
 
@@ -265,9 +274,6 @@ def startProcess(Rawfile_name):
         getSingleRegTable.getRegrTable(os.path.dirname(Rawfile_name),relatedPhysioFolder,par_Path)
     else:
         print("Error: Processing not possible, because either there is no folder called Physio or the related physio data for the scan is missing there.")
-
-    sys.stdout = sys.__stdout__
-    print('fMRI Processing  \033[0;30;42m COMPLETED \33[0m')
 
     return mcfFile_name
 
@@ -301,18 +307,18 @@ if __name__ == "__main__":
         os.path.join(os.getcwd(), os.pardir, os.pardir)) + '/lib/annotation_50CHANGEDanno_label_IDs+2000.txt'
     labelNames2000 = os.path.abspath(
         os.path.join(os.getcwd(), os.pardir, os.pardir)) + '/lib/annoVolume+2000_rsfMRI.nii.txt'
-    input = None
+    input_file = None
     if args.input is not None and args.input is not None:
-        input = args.input
-    if not os.path.exists(input):
-        sys.exit("Error: '%s' is not an existing directory or file %s is not in directory." % (input, args.file,))
+        input_file = args.input
+    if not os.path.exists(input_file):
+        sys.exit("Error: '%s' is not an existing directory or file %s is not in directory." % (input_file, args.file,))
 
-    mcfFile_name = startProcess(input)
+    mcfFile_name = startProcess(input_file)
 
     
     # if stc is activated find parameters
     if stc: 
-        print("Performing slice time correction...")
+        print("Starting Regression with slice time correction:")
         # find meta data json file
         meta_data_file_name = Path(args.input).name.replace(".nii.gz", ".json")
         meta_data_file = os.path.join(Path(args.input).parent, meta_data_file_name)
@@ -340,16 +346,17 @@ if __name__ == "__main__":
         delete_txt_file(slice_order_path)
 
     else:
+        print("Starting Regression without slice time correction:")
         rgr_file, srgr_file, sfrgr_file = regress.startRegression(mcfFile_name, FWHM, cutOff_sec, TR, stc)
-        print("sfrgr_file",sfrgr_file)
+        print(f"sfrgr_file {sfrgr_file}")
 
     
 
-    atlasPath = os.path.dirname(input)
-    roisPath = copyAtlasOfData(atlasPath,'Anno_rsfMRI',labels)
+    atlasPath = os.path.dirname(input_file)
+    roisPath = copyAtlasOfData(atlasPath,'Anno_parental',labels)
 
     fslMeantsFile = fsl_mean_ts.start_fsl_mean_ts(sfrgr_file, roisPath, labelNames, 'MasksTCs.')
 
-    roisPath = copyAtlasOfData(atlasPath, 'AnnoSplit_rsfMRI', labels2000)
+    roisPath = copyAtlasOfData(atlasPath, 'AnnoSplit_parental', labels2000)
 
     fslMeantsFile = fsl_mean_ts.start_fsl_mean_ts(sfrgr_file, roisPath, labelNames2000, 'MasksTCsSplit.')

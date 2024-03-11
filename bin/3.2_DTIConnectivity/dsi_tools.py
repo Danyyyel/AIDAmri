@@ -30,18 +30,18 @@ import glob
 import nibabel as nii
 import numpy as np
 import nipype.interfaces.fsl as fsl
-
 import shutil
 import subprocess
-
+import pandas as pd
 
 def scaleBy10(input_path, inv):
     data = nii.load(input_path)
-    imgTemp = data.get_data()
+    imgTemp = data.get_fdata()
     if inv is False:
         scale = np.eye(4) * 10
         scale[3][3] = 1
         scaledNiiData = nii.Nifti1Image(imgTemp, data.affine * scale)
+        # overwrite old nifti
         fslPath = os.path.join(os.path.dirname(input_path), 'fslScaleTemp.nii.gz')
         nii.save(scaledNiiData, fslPath)
         return fslPath
@@ -52,7 +52,6 @@ def scaleBy10(input_path, inv):
         hdrOut = unscaledNiiData.header
         hdrOut.set_xyzt_units('mm')
 
-        # hdrOut['sform_code'] = 1
         nii.save(unscaledNiiData, input_path)
         return input_path
     else:
@@ -72,21 +71,25 @@ def fsl_SeparateSliceMoCo(input_file, par_folder):
     # scale Nifti data by factor 10
     dataName = os.path.basename(input_file).split('.')[0]
     fslPath = scaleBy10(input_file, inv=False)
+
+    aidamri_dir = os.getcwd()
+    temp_dir = os.path.join(os.path.dirname(input_file), "temp")
+    if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+
+    os.chdir(temp_dir)
     mySplit = fsl.Split(in_file=fslPath, dimension='z', out_base_name=dataName)
-    print(mySplit.cmdline)
     mySplit.run()
     os.remove(fslPath)
 
     # sparate ref and src volume in slices
     sliceFiles = findSlicesData(os.getcwd(), dataName)
-    print('For all slices ... ')
 
     # start to correct motions slice by slice
     for i in range(len(sliceFiles)):
         slc = sliceFiles[i]
         output_file = os.path.join(par_folder, os.path.basename(slc))
         myMCFLIRT = fsl.preprocess.MCFLIRT(in_file=slc, out_file=output_file, save_plots=True, terminal_output='none')
-        print(myMCFLIRT.cmdline)
         myMCFLIRT.run()
         os.remove(slc)
 
@@ -95,7 +98,6 @@ def fsl_SeparateSliceMoCo(input_file, par_folder):
     output_file = os.path.join(os.path.dirname(input_file),
                                os.path.basename(input_file).split('.')[0]) + '_mcf.nii.gz'
     myMerge = fsl.Merge(in_files=mcf_sliceFiles, dimension='z', merged_file=output_file)
-    print(myMerge.cmdline)
     myMerge.run()
 
     for slc in mcf_sliceFiles: 
@@ -103,6 +105,8 @@ def fsl_SeparateSliceMoCo(input_file, par_folder):
 
     # unscale result data by factor 10**(-1)
     output_file = scaleBy10(output_file, inv=True)
+    
+    os.chdir(aidamri_dir)
 
     return output_file
 
@@ -113,7 +117,6 @@ def make_dir(dir_out, dir_sub):
     """
     dir_out = os.path.normpath(os.path.join(dir_out, dir_sub))
     if not os.path.exists(dir_out):
-        print("Create directory \"%s\"" % (dir_out,))
         os.mkdir(dir_out)
         time.sleep(1.0)
         if not os.path.exists(dir_out):
@@ -128,7 +131,6 @@ def move_files(dir_in, dir_out, pattern):
     time.sleep(1.0)
     for file_mv in file_list: # move files from input to output directory
         file_in = os.path.join(dir_in, file_mv)
-        print("Move file \"%s\" to directory \"%s\"" % (file_in, dir_out))
         shutil.copy(file_in, dir_out)
 
     for file_mv in file_list: # remove files in output directory
@@ -194,6 +196,7 @@ def mapsgen(dsi_studio, dir_in, dir_msk, b_table, pattern_in, pattern_fib):
     os.chdir(dir_in)
 
     cmd_src = r'%s --action=%s --source=%s --output=%s --b_table=%s'
+    # method: 0:DSI, 1:DTI, 4:GQI 7:QSDR, param0: 1.25 (in vivo) diffusion sampling lenth ratio for GQI and QSDR reconstruction, --thread_count: number of multi-threads used to conduct reconstruction 
     cmd_rec = r'%s --action=%s --source=%s --mask=%s --method=%d --param0=%s --thread_count=%d --check_btable=%d'
 
     file_list = [x for x in os.listdir(dir_in) if os.path.isfile(os.path.join(dir_in, x)) and re.match(pattern_in, x)]
@@ -205,13 +208,11 @@ def mapsgen(dsi_studio, dir_in, dir_msk, b_table, pattern_in, pattern_fib):
 
         file_src = filename[:pos] + ext_src
         parameters = (dsi_studio, 'src', filename, file_src, b_table)
-        print("%d of %d:" % (index + 1, len(file_list)), cmd_src % parameters)
         subprocess.call(cmd_src % parameters)
 
         # create fib files
         file_msk = os.path.join(dir_msk, pre_msk + filename[:pos] + ext_nii)
-        parameters = (dsi_studio, 'rec', file_src, file_msk, 3, '16', 2, 0)
-        print("%d of %d:" % (index + 1, len(file_list)), cmd_rec % parameters)
+        parameters = (dsi_studio, 'rec', file_src, file_msk, 3, '1.25', 2, 0)
         subprocess.call(cmd_rec % parameters)
 
     # extracts maps: 2 ways:
@@ -259,6 +260,9 @@ def srcgen(dsi_studio, dir_in, dir_msk, dir_out, b_table):
     os.chdir(os.path.dirname(dir_in))
 
     cmd_src = r'%s --action=%s --source=%s --output=%s --b_table=%s'
+    # method: 0:DSI, 1:DTI, 4:GQI 7:QSDR, param0: 1.25 (in vivo) diffusion sampling lenth ratio for GQI and QSDR reconstruction, 
+    # check_btable: Set –check_btable=1 to test b-table orientation and apply automatic flippin, thread_count: number of multi-threads used to conduct reconstruction
+    # flip image orientation in x, y or z direction !! needs to be adjusted according to your data, check fiber tracking result to be anatomically meaningful
     cmd_rec = r'%s --action=%s --source=%s --mask=%s --method=%d --param0=%s --check_btable=%d --half_sphere=%d --cmd=%s'
 
     # create source files
@@ -266,13 +270,11 @@ def srcgen(dsi_studio, dir_in, dir_msk, dir_out, b_table):
     pos = filename.rfind('.')
     file_src = os.path.join(dir_src, filename[:pos] + ext_src)
     parameters = (dsi_studio, 'src', filename, file_src, b_table)
-    print("Generate src-File %s:" % cmd_src % parameters)
     os.system(cmd_src % parameters)
 
     # create fib files
     file_msk = dir_msk
-    parameters = (dsi_studio, 'rec', file_src, file_msk, 1, '16', 0, 1,'"[Step T2][B-table][flip by]+[Step T2][B-table][flip bz]"')
-    print("Generate fib-File %s:" % cmd_rec % parameters)
+    parameters = (dsi_studio, 'rec', file_src, file_msk, 1, '1.25', 0, 1,'"[Step T2][B-table][flip by]+[Step T2][B-table][flip bz]"')
     os.system(cmd_rec % parameters)
 
     # move fib to corresponding folders
@@ -282,28 +284,24 @@ def srcgen(dsi_studio, dir_in, dir_msk, dir_out, b_table):
     cmd_exp = r'%s --action=%s --source=%s --export=%s'
     file_fib = glob.glob(dir_fib+'/*fib.gz')[0]
     parameters = (dsi_studio, 'exp', file_fib, 'fa')
-    print("Generate two maps %s:" % cmd_exp % parameters)
     os.system(cmd_exp % parameters)
 
     # extracts maps: 2 ways:
     cmd_exp = r'%s --action=%s --source=%s --export=%s'
     file_fib = glob.glob(dir_fib + '/*fib.gz')[0]
     parameters = (dsi_studio, 'exp', file_fib, 'md')
-    print("Generate two maps %s:" % cmd_exp % parameters)
     os.system(cmd_exp % parameters)
 
     # extracts maps: 2 ways:
     cmd_exp = r'%s --action=%s --source=%s --export=%s'
     file_fib = glob.glob(dir_fib + '/*fib.gz')[0]
     parameters = (dsi_studio, 'exp', file_fib, 'ad')
-    print("Generate two maps %s:" % cmd_exp % parameters)
     os.system(cmd_exp % parameters)
 
     # extracts maps: 2 ways:
     cmd_exp = r'%s --action=%s --source=%s --export=%s'
     file_fib = glob.glob(dir_fib + '/*fib.gz')[0]
     parameters = (dsi_studio, 'exp', file_fib, 'rd')
-    print("Generate two maps %s:" % cmd_exp % parameters)
     os.system(cmd_exp % parameters)
 
     move_files(dir_fib, dir_qa, '/*qa.nii.gz')
@@ -311,7 +309,35 @@ def srcgen(dsi_studio, dir_in, dir_msk, dir_out, b_table):
     move_files(dir_fib, dir_qa, '/*md.nii.gz')
     move_files(dir_fib, dir_qa, '/*ad.nii.gz')
     move_files(dir_fib, dir_qa, '/*rd.nii.gz')
-
+    
+    fa_file = nii.load(glob.glob(os.path.join(dir_qa,"*fa.nii*"))[0])
+    fa_data = fa_file.get_fdata()
+    fa_data_flipped = np.flip(fa_data,0)
+    fa_data_flipped = np.flip(fa_data_flipped,1)
+    fa_file_flipped = nii.Nifti1Image(fa_data_flipped, fa_file.affine)
+    nii.save(fa_file_flipped,os.path.join(dir_qa,"fa_flipped.nii.gz"))
+    
+    md_file = nii.load(glob.glob(os.path.join(dir_qa,"*md.nii*"))[0])
+    md_data = md_file.get_fdata()
+    md_data_flipped = np.flip(md_data,0)
+    md_data_flipped = np.flip(md_data_flipped,1)
+    md_file_flipped = nii.Nifti1Image(md_data_flipped, md_file.affine)
+    nii.save(md_file_flipped,os.path.join(dir_qa,"md_flipped.nii.gz"))
+    
+    ad_file = nii.load(glob.glob(os.path.join(dir_qa,"*ad.nii*"))[0])
+    ad_data = ad_file.get_fdata()
+    ad_data_flipped = np.flip(ad_data,0)
+    ad_data_flipped = np.flip(ad_data_flipped,1)
+    ad_file_flipped = nii.Nifti1Image(ad_data_flipped, ad_file.affine)
+    nii.save(ad_file_flipped,os.path.join(dir_qa,"ad_flipped.nii.gz"))
+    
+    rd_file = nii.load(glob.glob(os.path.join(dir_qa,"*rd.nii*"))[0])
+    rd_data = rd_file.get_fdata()
+    rd_data_flipped = np.flip(rd_data,0)
+    rd_data_flipped = np.flip(rd_data_flipped,1)
+    rd_file_flipped = nii.Nifti1Image(rd_data_flipped, rd_file.affine)
+    nii.save(rd_file_flipped,os.path.join(dir_qa,"rd_flipped.nii.gz"))
+    
 def tracking(dsi_studio, dir_in):
     """
     Performs seed-based fiber-tracking.
@@ -322,13 +348,78 @@ def tracking(dsi_studio, dir_in):
     # change to input directory
     os.chdir(os.path.dirname(dir_in))
 
-    # qa threshold for 60/65 = 0.05; for Alzheimer: 0.03
-    cmd_trk = r'%s --action=%s --source=%s --output=%s --fiber_count=%d --interpolation=%d --step_size=%s --turning_angle=%s --check_ending=%d --fa_threshold=%s --smoothing=%s --min_length=%s --max_length=%s'
-
+    # Use this tracking parameters if you want to specify each tracking parameter separately.
+    #cmd_trk = r'%s --action=%s --source=%s --output=%s --fiber_count=%d --interpolation=%d --step_size=%s --turning_angle=%s --check_ending=%d --fa_threshold=%s --smoothing=%s --min_length=%s --max_length=%s'
+    
+    # Use this tracking parameters in the form of parameter_id that you can get directly from the dsi_studio gui console. (this is here now the defualt mode)
+    cmd_trk = r'%s --action=%s --source=%s --output=%s --parameter_id=%s'
+    
     filename = glob.glob(dir_in+'/*fib.gz')[0]
-    parameters = (dsi_studio, 'trk', filename, os.path.join(dir_in, filename+'.trk.gz'), 1000000, 0, '.5', '55', 0, '.02', '.1', '.5', '12.0')
-    print("Track neuronal pathes %s:" % cmd_trk % parameters)
+    
+    
+    # Use this tracking parameters if you want to specify each tracking parameter separately.
+    #parameters = (dsi_studio, 'trk', filename, os.path.join(dir_in, filename+'.trk.gz'), 1000000, 0, '.5', '55', 0, '.02', '.1', '.5', '12.0') #Our Old parameters
+    #parameters = (dsi_studio, 'trk', filename, os.path.join(dir_in, filename+'.trk.gz'), 1000000, 0, '.01', '55', 0, '.02', '.1', '.3', '120.0') #Here are the optimized parameters (fatemeh)
+    
+    # Use this tracking parameters in the form of parameter_id that you can get directly from the dsi_studio gui console. (this is here now the defualt mode)
+    parameters = (dsi_studio, 'trk', filename, os.path.join(dir_in, filename+'.trk.gz'), '0AD7A33C9A99193FE8D5123F0AD7233CCDCCCC3D9A99993EbF04240420FdcaCDCC4C3Ec')
+
     os.system(cmd_trk % parameters)
+
+def merge_bval_bvec_to_btable(folder_path):
+    # List files in the specified folder
+    files = os.listdir(folder_path)
+
+    # Find bval and bvec files in the folder
+    bval_file = None
+    bvec_file = None
+
+    for file in files:
+        if file.endswith(".bval"):
+            bval_file = os.path.join(folder_path, file)
+        elif file.endswith(".bvec"):
+            bvec_file = os.path.join(folder_path, file)
+
+    # Check if both bval and bvec files were found
+    if bval_file is not None or bvec_file is not None:
+        print("Both bval and bvec files must be present in the folder.")
+        fileName = os.path.basename(bvec_file).replace(".bvec","")
+       
+    try:
+        with open(bval_file, 'r') as bval_file:
+            bval_contents = bval_file.read()
+            # Split the content into a list of values (assuming it's space-separated)
+            bval_values = bval_contents.strip().split()
+            # Convert the list to a Pandas DataFrame and cast the 'bval' column to integers
+            bval_table = pd.DataFrame({'bval': bval_values}).astype(float)
+
+        with open(bvec_file, 'r') as bvec_file:
+            # Read lines and split each line into values
+            bvec_lines = bvec_file.readlines()
+            bvec_values = [line.strip().split() for line in bvec_lines]
+
+            # Create a Pandas DataFrame from the values
+            bvec_table = pd.DataFrame(bvec_values, columns=[f'bvec_{i+1}' for i in range(len(bvec_values[0]))])
+            # Transpose the bvec_table
+            bvec_table = bvec_table.T
+
+        # Merge bval_table and bvec_table
+        merged_table = np.hstack((bval_table, bvec_table))
+        # Convert the merged_table content to float
+        merged_table = merged_table.astype(float)
+        # Define the path for the final merged table
+        final_path = os.path.join(folder_path, fileName + "_btable.txt")
+
+        # Save the merged table to the final file
+        np.savetxt(final_path, merged_table, fmt='%f', delimiter='\t')
+        print(f"Merged table saved to {final_path}")
+        return final_path
+    except FileNotFoundError:
+        print("One or both of the bval and bvec files were not found.")
+        return False
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        return False
 
 if __name__ == '__main__':
     pass

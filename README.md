@@ -9,9 +9,9 @@ Atlas-based Imaging Data Analysis Pipeline (AIDA) for structural and functional 
 <br/>
 <br/>
 
-[Information latest Version 1.3](https://github.com/maswendt/AIDAmri/releases/tag/v1.3)
+[Information latest Version 2.0](https://github.com/maswendt/AIDAmri/releases/tag/v2.0)
 
-<h3><b>Manual v1.3</h3></b>
+<h3><b>Manual v2.0</h3></b>
 
 [**Link**](https://github.com/maswendt/AIDA/blob/master/manual.pdf)
 
@@ -21,7 +21,7 @@ We fully moved to the containerized version of AIDAmri via [Docker](https://docs
 
 <h3><b>EXAMPLE FILES</h3></b>
 
-Download [**here**](https://doid.gin.g-node.org/70e11fe472242e2d4f96c53ac9b0a556/) (you may need to browse the archive or the repository and directly download the test-data file from there. Do not download the zipped archive).\
+Download [**here**](https://gin.g-node.org/Aswendt_Lab/testdata_AIDA) (you probably have to clone the dataset from the gin repo. The files are annexed files, also use the raw_data folder as the test data).\
 Mouse MRI data, acquired with Bruker 9.4T - cryo coil setup: adult C57BL7/6 mouse, 
 T2-weighted (anatomical scan),
 DTI (structural connectivity scan),
@@ -45,7 +45,7 @@ If you encounter problems, report directly in [![Gitter](https://badges.gitter.i
 
 or 
 
-join our Open Office Hour - each Thursday 3:00 pm (UTC+2) [![Zoom](https://img.shields.io/badge/Zoom-2D8CFF?style=for-the-badge&logo=zoom&logoColor)](https://uni-koeln.zoom.us/meeting/register/tJYsceyorDoqGdX4H8Z7c86_qxoaq6yOdFGM)\
+join our Open Office Hour - ~each Thursday 3:00 pm (UTC+2)~ next meeting in 11.01.2024 at 3:00 pm (UTC+2) [![Zoom](https://img.shields.io/badge/Zoom-2D8CFF?style=for-the-badge&logo=zoom&logoColor)](https://uni-koeln.zoom.us/meeting/register/tJYsceyorDoqGdX4H8Z7c86_qxoaq6yOdFGM)\
 
 For all other inquiries: Markus Aswendt (markus.aswendt@uk-koeln.de)
 

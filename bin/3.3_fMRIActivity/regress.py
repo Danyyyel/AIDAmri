@@ -17,7 +17,6 @@ import shutil
 from pathlib import Path
 
 
-
 def scaleBy10(input_path,inv):
     data = nii.load(input_path)
     imgTemp = data.get_data()
@@ -73,6 +72,12 @@ def delete5Slides(input_file,regr_Path):
 def fsl_RegrSliceWise(input_file,txtregr_Path,regr_Path):
     # scale Nifti data by factor 10
     dataName = os.path.basename(input_file).split('.')[0]
+    
+    aidamri_dir = os.getcwd()
+    temp_dir = os.path.join(os.path.dirname(input_file), "temp")
+    
+    os.chdir(temp_dir)
+    
 
     # proof  data existence
     regrTextFiles = findRegData(txtregr_Path)
@@ -127,6 +132,8 @@ def fsl_RegrSliceWise(input_file,txtregr_Path,regr_Path):
 
     # unscale result data by factor 10ˆ(-1)
     output_file = scaleBy10(output_file, inv=True)
+    
+    os.chdir(aidamri_dir)
 
     return output_file
 
@@ -226,7 +233,7 @@ def applyBET(input_file,frac,radius,vertical_gradient):
 
 def startRegression(input_File, FWHM, cutOff_sec, TR, stc, slice_order = None, costum_timings = None):
     # generate folder regr images
-    print("Regression \33[5m...\33[0m (wait!)", end="\r")
+    
     origin_Path = os.path.dirname(os.path.dirname(input_File))
     regr_Path = os.path.join(origin_Path, 'regr')
 
@@ -234,9 +241,7 @@ def startRegression(input_File, FWHM, cutOff_sec, TR, stc, slice_order = None, c
         shutil.rmtree(regr_Path)
     os.mkdir(regr_Path)
 
-    # generatre log-File
-    sys.stdout = open(os.path.join(regr_Path,'regress.log'),'w')
-
+    print("Regression started (wait!)")
     # perform slice time correction
     if stc:
         input_File = fsl_slicetimeCorrector(input_File, costum_timings, slice_order, TR)
@@ -302,8 +307,7 @@ def startRegression(input_File, FWHM, cutOff_sec, TR, stc, slice_order = None, c
     #highpass = 17.6056338028
     filtered_image = filterFSL(intnormSrgr_file,highpass,tempMean)
 
-    sys.stdout = sys.__stdout__
-    print('Regression  \033[0;30;42m COMPLETED \33[0m')
+    print('Regression completed!')
     return regr_FileReal, srgr_file ,filtered_image
 
 if __name__ == "__main__":

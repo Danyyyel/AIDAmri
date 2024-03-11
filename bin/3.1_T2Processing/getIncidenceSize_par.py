@@ -77,10 +77,6 @@ def thresholding(volumeMR,maskImg,thres,k):
 
 def incidenceMap(path_listInc,path_listMR ,path_listAnno, araDataTemplate,incidenceMask ,thres, outfile,labels):
 
-
-
-
-
     araDataTemplate  = nii.load(araDataTemplate)
     realAraImg = araDataTemplate.get_data()
     coloredAraLabels = np.zeros([np.size(realAraImg, 0), np.size(realAraImg, 1), np.size(realAraImg, 2)])
@@ -155,7 +151,8 @@ def incidenceMap(path_listInc,path_listMR ,path_listAnno, araDataTemplate,incide
 
             #o.write(str(int(lines[i].split('	')[0]) + 2000) + '	R_' + lines[i].split('	')[1])
     o.close()
-    labMat = np.stack((labMat, regionAffectPercent))
+    rows = np.shape(labMat)[0]
+    labMat = np.stack((labMat, regionAffectPercent[0:rows]))
     matFile['ABLAbelsIDsParental'] = labMat
     matFile['ABANamesPar'] = labelNamesAffected
     matFile['ABAlabels'] = labelNames
@@ -197,7 +194,7 @@ def findRegisteredData(path):
 def findRegisteredAnno(path):
     regANNO_list = []
 
-    for filename in glob.iglob(path + '*/*_AnnorsfMRI.nii.gz', recursive=True):
+    for filename in glob.iglob(path + '*/*_AnnoSplit_parental.nii.gz', recursive=True):
         regANNO_list.append(filename)
 
     return regANNO_list
@@ -222,13 +219,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-
     if args.inputFolder is not None:
         inputFolder = args.inputFolder
         outfile = args.inputFolder
     if not os.path.exists(inputFolder):
         sys.exit("Error: '%s' is not an existing directory." % (inputFolder,))
-
 
 
     if args.allenBrain_anno is not None:
