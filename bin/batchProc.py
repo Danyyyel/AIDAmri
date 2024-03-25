@@ -314,7 +314,8 @@ if __name__ == "__main__":
     optionalNamed.add_argument('-ds', '--debug_steps', required=False, nargs='+', help='Define which steps of the processing should be done. Default = [preprocess, registration, process]')
     optionalNamed.add_argument('-cpu', '--cpu_cores', required=False, default = "Half", help='Define how many parallel processes should be use to process your data. CAUTION: Too many processes will slow down your computer noticeably. Select between: ["Min", "Half", "Max"]')
     optionalNamed.add_argument('-e_cpu', '--expert_cpu', required=False, help='Define precisely how many parallel processes should be used. Enter a number.')
-    
+    optionalNamed.add_argument('-c', '--check_results', action='store_true', help='If set, a final CSV with the number of files in each subject and modality is created. Useful to get an overview of the data. Recommended.')
+
 
     args = parser.parse_args()
     pathToData = args.input
@@ -408,4 +409,8 @@ if __name__ == "__main__":
             
                 
 
- 
+    if args.check_results:
+        try:
+            os.system(f"python resultsChecker.py -i {pathToData}")
+        except Exception as e:
+            print("Results checker failed because:", e)
