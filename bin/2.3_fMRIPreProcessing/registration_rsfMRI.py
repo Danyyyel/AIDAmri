@@ -15,10 +15,40 @@ import subprocess
 import shlex
 
 
+# Function to combine affine matrices
+def combine_affine_matrices(affine_matrix_func_path, affine_matrix_dwi_path):
+    affine_func = np.loadtxt(affine_matrix_func_path)
+    affine_dwi = np.loadtxt(affine_matrix_dwi_path)
+
+    translation_scaling = np.eye(4)
+    translation_scaling[:, 3] = affine_func[:, 3]
+
+    rotation_shearing = affine_dwi.copy()
+    rotation_shearing[:, 3] = 0
+
+    affine_combined = np.dot(rotation_shearing, translation_scaling)
+    
+    deprecated_path = os.path.join(os.path.dirname(affine_matrix_func_path), "AffineMatrix_deprecated.txt")
+    
+    os.rename(affine_matrix_func_path, deprecated_path)
+    np.savetxt(affine_matrix_func_path, affine_combined, fmt='%f', delimiter=' ')
+    print(f"Combined and saved affine matrices for {os.path.basename(affine_func_path)}")
+
+    
+    return affine_matrix_func_path
+
+
+
 def regABA2rsfMRI(inputVolume, T2data, brain_template, brain_anno, splitAnno, splitAnno_rsfMRI, anno_rsfMRI,
                   bsplineMatrix, dref, outfile):
     outputT2w = os.path.join(outfile, os.path.basename(inputVolume).split('.')[0] + '_T2w.nii.gz')
     outputAff = os.path.join(outfile, os.path.basename(inputVolume).split('.')[0] + 'transMatrixAff.txt')
+    
+    parent_dir = os.path.dirname(os.path.dirname(inputVolume))
+    dwi_path = os.path.join(parent_dir, 'dwi')
+    affine_dwi_path = glob.glob(os.path.join(dwi_path, "*MatrixAff.txt"))[0]
+    
+
 
     if dref:
         pathT2 = glob.glob(os.path.dirname(outfile) + '*/dwi/*T2w.nii.gz', recursive=False)
@@ -34,6 +64,8 @@ def regABA2rsfMRI(inputVolume, T2data, brain_template, brain_anno, splitAnno, sp
             raise
         #  resample Annotation
         outputAnno = os.path.join(outfile, os.path.basename(inputVolume).split('.')[0] + '_Anno.nii.gz')
+        
+        MATRIX = combine_affine_matrices(outputAff,affine_dwi_path)
 
         command = f"reg_resample -ref {inputVolume} -flo {brain_anno} -cpp {outputAff} -inter 0 -res {outputAnno}"
         command_args = shlex.split(command)
