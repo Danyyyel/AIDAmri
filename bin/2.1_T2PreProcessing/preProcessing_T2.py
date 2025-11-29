@@ -53,11 +53,10 @@ def applyBET(input_file,frac,radius,vertical_gradient):
     scale[3][3] = 1
 
     # this has to be adapted in the case the output image is not RAS orientated - Siding from feet to nose
-    #imgTemp = np.flip(imgTemp,2)
-    #imgTemp = np.flip(imgTemp,1)
-    imgTemp = np.flip(imgTemp,0)
-    #imgTemp = np.rot90(imgTemp,2)
-
+    #imgTemp = np.rot90(imgTemp, 2, (0,1)) #rotation along x-axis (I-S axis for ITK-SNAP)
+    imgTemp = np.rot90(imgTemp, 2, (0,2)) #rotation along y-axis (R-L axis for ITK-SNAP)
+    #imgTemp = np.rot90(imgTemp, 2, (1,2)) #rotation along z-axis (A-P axis for ITK-SNAP)
+    
     scaledNiiData = nii.Nifti1Image(imgTemp, data.affine * scale)
     hdrIn = scaledNiiData.header
     hdrIn.set_xyzt_units('mm')
@@ -91,16 +90,6 @@ def applyBET(input_file,frac,radius,vertical_gradient):
 
 #%% Program
 
-
-#mice
-#default_frac = 0.15
-#default_rad  = 45
-#default_vert = 0.0
-
-default_frac = 0.1
-default_rad  = 60
-default_vert = 0.13
-
 if __name__ == "__main__":
     import argparse
     
@@ -110,13 +99,21 @@ if __name__ == "__main__":
     requiredNamed = parser.add_argument_group('Required named arguments')
     requiredNamed.add_argument('-i','--input_file', help='path to input file',required=True)
 
+    requiredNamed.add_argument(
+        '-s',
+        '--species',
+        help='Rodent species - select mouse or rat',
+        type=str,
+        choices=['mouse', 'rat'],
+        required=True,
+        )
     parser.add_argument(
         '-f',
         '--frac',
         help='Fractional intensity threshold - default: Mouse=0.15 , Rat=0.26  smaller values give larger brain outline estimates',
         nargs='?',
         type=float,
-        default=default_frac,
+        default=None,
         )
     parser.add_argument(
         '-r', 
@@ -124,7 +121,7 @@ if __name__ == "__main__":
         help='Head radius (mm not voxels) - default: Mouse=45 , Rat=55',
         nargs='?',
         type=int,
-        default=default_rad,
+        default=None,
         )
     parser.add_argument(
         '-g',
@@ -132,7 +129,7 @@ if __name__ == "__main__":
         help='Vertical gradient in fractional intensity threshold - default: Mouse=0.0 , Rat=0.07   positive values give larger brain outlines at bottom and smaller brain outlines at top',
         nargs='?',
         type=float,
-        default=default_vert,
+        default=None,
         )
     parser.add_argument(
         '-b',
@@ -145,19 +142,38 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+
     # set Parameters
     input_file = None
     if args.input_file is not None and args.input_file is not None:
         input_file = args.input_file
     if not os.path.exists(input_file):
         sys.exit("Error: '%s' is not an existing directory or file %s is not in directory." % (input_file, args.file,))
+    
+    species_defaults = {
+        'mouse': {
+            'frac':   0.15,
+            'radius': 45,
+            'vertical_gradient': 0.0
+        },
+        'rat': {
+            'frac':   0.26,
+            'radius': 60,
+            'vertical_gradient': 0.07
+        }
+    }
 
-    frac = args.frac
-    radius = args.radius
-    vertical_gradient = args.vertical_gradient
+    defaults = species_defaults[args.species]
+    
+    if args.frac is None:
+        args.frac = defaults['frac']
+    if args.radius is None:
+        args.radius = defaults['radius']    
+    if args.vertical_gradient is None:
+        args.vertical_gradient = defaults['vertical_gradient']
     bias_skip = args.bias_skip
 
-    print(f"Frac: {frac} Radius: {radius} Gradient {vertical_gradient}")
+    print(f"Frac: {args.frac} Radius: {args.radius} Gradient {args.vertical_gradient}")
 
     reset_orientation(input_file)
     print("Orientation resetted to RAS")
@@ -177,7 +193,7 @@ if __name__ == "__main__":
     # brain extraction
     print("Starting brain extraction")
     try:
-        outputBET = applyBET(input_file=outputMICO,frac=frac,radius=radius,vertical_gradient=vertical_gradient)
+        outputBET = applyBET(input_file=outputMICO,frac=args.frac,radius=args.radius,vertical_gradient=args.vertical_gradient)
         print("Brain extraction was successful")
     except Exception as e:
         print(f'Error in brain extraction\nFehlermeldung: {str(e)}')
